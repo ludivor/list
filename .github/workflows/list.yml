@@ -1,66 +1,96 @@
-      - name: Generar listas (seguro, con temporales)
+name: update
+
+on:
+  schedule:
+    - cron: '34 * * * *'  # minutos 1 y 31 de cada hora (UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  descarga_reemplazo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: build
         id: gen
         shell: bash
         run: |
-          set -euo pipefail
-
-          # Define aquí: salida | url_origen | buscar | reemplazar
-          SALIDAS=(
-            "original.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|127.0.0.1:6878|127.0.0.1:6878"
-          )
-
-          # Fichero con el listado de outputs generados (para git add)
-          PATHS_FILE="$(mktemp)"
-          trap 'rm -f "$PATHS_FILE"' EXIT
-
-          for item in "${SALIDAS[@]}"; do
-            IFS='|' read -r OUT URL BUSCAR REEMPLAZAR <<< "$item"
-
-            tmp_in="$(mktemp)"
-            tmp_out="${OUT}.new"
-            trap 'rm -f "$tmp_in" "$tmp_out"' RETURN || true
-
-            echo "Descargando origen para $OUT: $URL"
-            curl -L -f "$URL" -o "$tmp_in"
-            if [ ! -s "$tmp_in" ]; then
-              echo "Error: origen vacío para $OUT"
-              exit 1
-            fi
-
-            sed "s#${BUSCAR}#${REEMPLAZAR}#g" "$tmp_in" > "$tmp_out"
-            if [ ! -s "$tmp_out" ]; then
-              echo "Error: salida vacía para $OUT"
-              exit 1
-            fi
-
-            mv "$tmp_out" "$OUT"
-            rm -f "$tmp_in"
-
-            printf '%s\n' "$OUT" >> "$PATHS_FILE"
-            echo "✅ Generado: $OUT"
-          done
-
-          echo "paths_file=$PATHS_FILE" >> "$GITHUB_OUTPUT"
-
-      - name: Verificar si hay cambios (solo ficheros generados)
+            set -euo pipefail
+            
+            SALIDAS=(
+              "original.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|127.0.0.1:6878|127.0.0.1:6878"
+              "ne_mod.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|http://127.0.0.1:6878|http://10.0.0.242:8080"
+              "ec_mod.m3u|https://ipfs.io/ipns/k51qzi5uqu5di462t7j4vu4akwfhvtjhy88qbupktvoacqfqe9uforjvhyi4wr/hashes.m3u|http://127.0.0.1:6878|http://10.0.0.242:8080"
+            )
+            
+            PATHS_FILE="$RUNNER_TEMP/paths_to_add.txt"
+            : > "$PATHS_FILE"
+            
+            # Cache de descargas: URL -> fichero local ya descargado
+            declare -A CACHE_URL_FILE=()
+            TMP_DIR="$(mktemp -d)"
+            cleanup_all() { rm -rf "$TMP_DIR"; }
+            trap cleanup_all EXIT
+            
+            get_source_for_url() {
+              local url="$1"
+            
+              if [[ -n "${CACHE_URL_FILE[$url]:-}" ]]; then
+                echo "${CACHE_URL_FILE[$url]}"
+                return 0
+              fi
+            
+              local f="$TMP_DIR/src_$(printf '%s' "$url" | sha1sum | awk '{print $1}').m3u"
+              echo "Descargando origen (cache miss): $url"
+              curl -L -f "$url" -o "$f"
+              test -s "$f"
+            
+              CACHE_URL_FILE["$url"]="$f"
+              echo "$f"
+            }
+            
+            for item in "${SALIDAS[@]}"; do
+              IFS='|' read -r OUT URL BUSCAR REEMPLAZAR <<< "$item"
+            
+              src_file="$(get_source_for_url "$URL")"
+              tmp_out="${OUT}.new"
+            
+              sed "s#${BUSCAR}#${REEMPLAZAR}#g" "$src_file" > "$tmp_out"
+              test -s "$tmp_out"
+            
+              mv "$tmp_out" "$OUT"
+              printf '%s\n' "$OUT" >> "$PATHS_FILE"
+              echo "✅ Generado: $OUT"
+            done
+            
+            echo "paths_file=$PATHS_FILE" >> "$GITHUB_OUTPUT"
+            
+      - name: Verify
         id: verify_diff
         shell: bash
         run: |
           set -euo pipefail
-
           git add --pathspec-from-file="${{ steps.gen.outputs.paths_file }}"
           if git diff --staged --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-        # Nota: --pathspec-from-file está documentado en git-add. [web:63]
-        # Nota: --quiet implica --exit-code en git-diff docs. [web:70]
 
-      - name: Commit y push de las listas modificadas
+      - name: Commit docs
         if: steps.verify_diff.outputs.changed == 'true'
+        shell: bash
         run: |
           git config --global user.email "actions@github.com"
           git config --global user.name "GitHub Actions"
           git commit -m "🤖 Lista M3U - $(TZ='Europe/Madrid' date +'%Y-%m-%d %H:%M:%S')"
           git push
+
