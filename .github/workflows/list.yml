@@ -23,8 +23,9 @@ jobs:
         id: gen
         shell: bash
         run: |
-         set -euo pipefail
-
+          set -euo pipefail
+          trap 's=$?; echo "Error en línea $LINENO: $BASH_COMMAND (exit $s)" >&2; exit $s' ERR
+          
           SALIDAS=(
             "original.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|127.0.0.1:6878|127.0.0.1:6878"
             "ne_mod.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|http://127.0.0.1:6878|http://10.0.0.242:8080"
@@ -39,6 +40,22 @@ jobs:
           cleanup_all() { rm -rf "$TMP_DIR"; }
           trap cleanup_all EXIT
           
+          fetch_url() {
+            local url="$1"
+            local f="$2"
+          
+            echo "Descargando: $url" >&2
+            curl -L --fail \
+              --connect-timeout 10 \
+              --max-time 120 \
+              --retry 5 \
+              --retry-delay 2 \
+              --retry-max-time 180 \
+              --retry-connrefused \
+              "$url" -o "$f"
+            test -s "$f"
+          }
+          
           get_source_for_url() {
             local url="$1"
           
@@ -48,9 +65,7 @@ jobs:
             fi
           
             local f="$TMP_DIR/src_$(printf '%s' "$url" | sha1sum | awk '{print $1}').m3u"
-            echo "Descargando origen (cache miss): $url" >&2
-            curl -L -f "$url" -o "$f"
-            test -s "$f"
+            fetch_url "$url" "$f"
           
             CACHE_URL_FILE["$url"]="$f"
             echo "$f"
