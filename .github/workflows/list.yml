@@ -1,0 +1,66 @@
+      - name: Generar listas (seguro, con temporales)
+        id: gen
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Define aquí: salida | url_origen | buscar | reemplazar
+          SALIDAS=(
+            "original.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|127.0.0.1:6878|127.0.0.1:6878"
+          )
+
+          # Fichero con el listado de outputs generados (para git add)
+          PATHS_FILE="$(mktemp)"
+          trap 'rm -f "$PATHS_FILE"' EXIT
+
+          for item in "${SALIDAS[@]}"; do
+            IFS='|' read -r OUT URL BUSCAR REEMPLAZAR <<< "$item"
+
+            tmp_in="$(mktemp)"
+            tmp_out="${OUT}.new"
+            trap 'rm -f "$tmp_in" "$tmp_out"' RETURN || true
+
+            echo "Descargando origen para $OUT: $URL"
+            curl -L -f "$URL" -o "$tmp_in"
+            if [ ! -s "$tmp_in" ]; then
+              echo "Error: origen vacío para $OUT"
+              exit 1
+            fi
+
+            sed "s#${BUSCAR}#${REEMPLAZAR}#g" "$tmp_in" > "$tmp_out"
+            if [ ! -s "$tmp_out" ]; then
+              echo "Error: salida vacía para $OUT"
+              exit 1
+            fi
+
+            mv "$tmp_out" "$OUT"
+            rm -f "$tmp_in"
+
+            printf '%s\n' "$OUT" >> "$PATHS_FILE"
+            echo "✅ Generado: $OUT"
+          done
+
+          echo "paths_file=$PATHS_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Verificar si hay cambios (solo ficheros generados)
+        id: verify_diff
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add --pathspec-from-file="${{ steps.gen.outputs.paths_file }}"
+          if git diff --staged --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        # Nota: --pathspec-from-file está documentado en git-add. [web:63]
+        # Nota: --quiet implica --exit-code en git-diff docs. [web:70]
+
+      - name: Commit y push de las listas modificadas
+        if: steps.verify_diff.outputs.changed == 'true'
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git commit -m "🤖 Lista M3U - $(TZ='Europe/Madrid' date +'%Y-%m-%d %H:%M:%S')"
+          git push
