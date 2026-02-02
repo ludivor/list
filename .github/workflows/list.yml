@@ -23,56 +23,55 @@ jobs:
         id: gen
         shell: bash
         run: |
-            set -euo pipefail
-            
-            SALIDAS=(
-              "original.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|127.0.0.1:6878|127.0.0.1:6878"
-              "ne_mod.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|http://127.0.0.1:6878|http://10.0.0.242:8080"
-              "ec_mod.m3u|https://ipfs.io/ipns/k51qzi5uqu5di462t7j4vu4akwfhvtjhy88qbupktvoacqfqe9uforjvhyi4wr/hashes.m3u|http://127.0.0.1:6878|http://10.0.0.242:8080"
-            )
-            
-            PATHS_FILE="$RUNNER_TEMP/paths_to_add.txt"
-            : > "$PATHS_FILE"
-            
-            # Cache de descargas: URL -> fichero local ya descargado
-            declare -A CACHE_URL_FILE=()
-            TMP_DIR="$(mktemp -d)"
-            cleanup_all() { rm -rf "$TMP_DIR"; }
-            trap cleanup_all EXIT
-            
-            get_source_for_url() {
-              local url="$1"
-            
-              if [[ -n "${CACHE_URL_FILE[$url]:-}" ]]; then
-                echo "${CACHE_URL_FILE[$url]}"
-                return 0
-              fi
-            
-              local f="$TMP_DIR/src_$(printf '%s' "$url" | sha1sum | awk '{print $1}').m3u"
-              echo "Descargando origen (cache miss): $url"
-              curl -L -f "$url" -o "$f"
-              test -s "$f"
-            
-              CACHE_URL_FILE["$url"]="$f"
-              echo "$f"
-            }
-            
-            for item in "${SALIDAS[@]}"; do
-              IFS='|' read -r OUT URL BUSCAR REEMPLAZAR <<< "$item"
-            
-              src_file="$(get_source_for_url "$URL")"
-              tmp_out="${OUT}.new"
-            
-              sed "s#${BUSCAR}#${REEMPLAZAR}#g" "$src_file" > "$tmp_out"
-              test -s "$tmp_out"
-            
-              mv "$tmp_out" "$OUT"
-              printf '%s\n' "$OUT" >> "$PATHS_FILE"
-              echo "✅ Generado: $OUT"
-            done
-            
-            echo "paths_file=$PATHS_FILE" >> "$GITHUB_OUTPUT"
-            
+         set -euo pipefail
+
+          SALIDAS=(
+            "original.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|127.0.0.1:6878|127.0.0.1:6878"
+            "ne_mod.m3u|https://ipfs.io/ipns/k2k4r8oqlcjxsritt5mczkcn4mmvcmymbqw7113fz2flkrerfwfps004/data/listas/lista_iptv.m3u|http://127.0.0.1:6878|http://10.0.0.242:8080"
+            "ec_mod.m3u|https://ipfs.io/ipns/k51qzi5uqu5di462t7j4vu4akwfhvtjhy88qbupktvoacqfqe9uforjvhyi4wr/hashes.m3u|http://127.0.0.1:6878|http://10.0.0.242:8080"
+          )
+          
+          PATHS_FILE="$RUNNER_TEMP/paths_to_add.txt"
+          : > "$PATHS_FILE"
+          
+          declare -A CACHE_URL_FILE=()
+          TMP_DIR="$(mktemp -d)"
+          cleanup_all() { rm -rf "$TMP_DIR"; }
+          trap cleanup_all EXIT
+          
+          get_source_for_url() {
+            local url="$1"
+          
+            if [[ -n "${CACHE_URL_FILE[$url]:-}" ]]; then
+              echo "${CACHE_URL_FILE[$url]}"
+              return 0
+            fi
+          
+            local f="$TMP_DIR/src_$(printf '%s' "$url" | sha1sum | awk '{print $1}').m3u"
+            echo "Descargando origen (cache miss): $url" >&2
+            curl -L -f "$url" -o "$f"
+            test -s "$f"
+          
+            CACHE_URL_FILE["$url"]="$f"
+            echo "$f"
+          }
+          
+          for item in "${SALIDAS[@]}"; do
+            IFS='|' read -r OUT URL BUSCAR REEMPLAZAR <<< "$item"
+          
+            src_file="$(get_source_for_url "$URL")"
+            tmp_out="${OUT}.new"
+          
+            sed "s#${BUSCAR}#${REEMPLAZAR}#g" "$src_file" > "$tmp_out"
+            test -s "$tmp_out"
+          
+            mv "$tmp_out" "$OUT"
+            printf '%s\n' "$OUT" >> "$PATHS_FILE"
+            echo "✅ Generado: $OUT"
+          done
+          
+          echo "paths_file=$PATHS_FILE" >> "$GITHUB_OUTPUT"
+                      
       - name: Verify
         id: verify_diff
         shell: bash
