@@ -2,7 +2,7 @@ name: update
 
 on:
   schedule:
-    - cron: '34 * * * *'  # minutos 1 y 31 de cada hora (UTC)
+    - cron: '34 * * * *' 
   workflow_dispatch:
 
 permissions:
