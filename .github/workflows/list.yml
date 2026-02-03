@@ -32,7 +32,7 @@ jobs:
             "ec_mod.m3u|https://ipfs.io/ipns/k51qzi5uqu5di462t7j4vu4akwfhvtjhy88qbupktvoacqfqe9uforjvhyi4wr/hashes.m3u|http://127.0.0.1:6878|http://10.0.0.242:8080"
             "ic_mod.m3u|https://raw.githubusercontent.com/Icastresana/lista1/main/peticiones|http://127.0.0.1:6878|http://10.0.0.242:8080"
             "ev_mod.m3u|https://raw.githubusercontent.com/Icastresana/lista1/refs/heads/main/eventos.m3u|acestream://|http://10.0.0.242:8080/ace/getstream?id="
-            "ev_mod.m3u|https://raw.githubusercontent.com/ludivor/ssiptv/refs/heads/main/docs/lista.m3u|http://10.0.0.242:8080|http://192.168.1.50:6878/ace/getstream?id="
+            "ss_mod.m3u|https://raw.githubusercontent.com/ludivor/ssiptv/refs/heads/main/docs/lista.m3u|http://10.0.0.242:8080|http://192.168.1.50:6878/ace/getstream?id="
           )
           
           PATHS_FILE="$RUNNER_TEMP/paths_to_add.txt"
