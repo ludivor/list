@@ -2,7 +2,7 @@ name: update
 
 on:
   schedule:
-    - cron: '34 * * * *' 
+    - cron: '34 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -34,19 +34,19 @@ jobs:
             "ev_mod.m3u|https://raw.githubusercontent.com/Icastresana/lista1/refs/heads/main/eventos.m3u|acestream://|http://10.0.0.242:8080/ace/getstream?id="
             "ss_mod.m3u|https://raw.githubusercontent.com/ludivor/ssiptv/refs/heads/main/docs/lista.m3u|http://10.0.0.242:8080|http://192.168.1.50:6878/ace/getstream?id="
           )
-          
+
           PATHS_FILE="$RUNNER_TEMP/paths_to_add.txt"
           : > "$PATHS_FILE"
-          
+
           declare -A CACHE_URL_FILE=()
           TMP_DIR="$(mktemp -d)"
           cleanup_all() { rm -rf "$TMP_DIR"; }
           trap cleanup_all EXIT
-          
+
           fetch_url() {
             local url="$1"
             local f="$2"
-          
+
             echo "Descargando: $url" >&2
             curl -L --fail \
               --connect-timeout 10 \
@@ -58,38 +58,75 @@ jobs:
               "$url" -o "$f"
             test -s "$f"
           }
-          
+
           get_source_for_url() {
             local url="$1"
-          
+
             if [[ -n "${CACHE_URL_FILE[$url]:-}" ]]; then
               echo "${CACHE_URL_FILE[$url]}"
               return 0
             fi
-          
+
             local f="$TMP_DIR/src_$(printf '%s' "$url" | sha1sum | awk '{print $1}').m3u"
-            fetch_url "$url" "$f"
-          
+
+            if ! fetch_url "$url" "$f"; then
+              return 1
+            fi
+
             CACHE_URL_FILE["$url"]="$f"
             echo "$f"
           }
-          
+
+          FAILED_URLS=()
+
+          echo "🔄 Iniciando procesamiento de listas..."
+
           for item in "${SALIDAS[@]}"; do
             IFS='|' read -r OUT URL BUSCAR REEMPLAZAR <<< "$item"
-          
-            src_file="$(get_source_for_url "$URL")"
+
+            echo ""
+            echo "➡️ Procesando: $OUT"
+
+            if ! src_file="$(get_source_for_url "$URL" 2>/dev/null)"; then
+              echo "❌ Error descargando $URL"
+              FAILED_URLS+=("$URL")
+              continue
+            fi
+
             tmp_out="${OUT}.new"
-          
-            sed "s#${BUSCAR}#${REEMPLAZAR}#g" "$src_file" > "$tmp_out"
-            test -s "$tmp_out"
-          
+
+            if ! sed "s#${BUSCAR}#${REEMPLAZAR}#g" "$src_file" > "$tmp_out"; then
+              echo "❌ Error aplicando sed a $OUT"
+              FAILED_URLS+=("$URL")
+              continue
+            fi
+
+            if ! test -s "$tmp_out"; then
+              echo "❌ Archivo generado vacío para $OUT"
+              FAILED_URLS+=("$URL")
+              continue
+            fi
+
             mv "$tmp_out" "$OUT"
             printf '%s\n' "$OUT" >> "$PATHS_FILE"
-            echo "✅ Generado: $OUT"
+            echo "✅ Generado correctamente: $OUT"
           done
-          
+
+          echo ""
+          echo "📋 Resumen final"
+          echo "----------------------------------"
+          if [[ ${#FAILED_URLS[@]} -eq 0 ]]; then
+            echo "🎉 Todas las URLs se procesaron correctamente"
+          else
+            echo "⚠️ URLs que fallaron:"
+            for u in "${FAILED_URLS[@]}"; do
+              echo "   - $u"
+            done
+          fi
+          echo "----------------------------------"
+
           echo "paths_file=$PATHS_FILE" >> "$GITHUB_OUTPUT"
-                      
+
       - name: Verify
         id: verify_diff
         shell: bash
@@ -110,4 +147,3 @@ jobs:
           git config --global user.name "GitHub Actions"
           git commit -m "🤖 Lista M3U - $(TZ='Europe/Madrid' date +'%Y-%m-%d %H:%M:%S')"
           git push
-
